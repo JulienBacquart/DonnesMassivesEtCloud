@@ -13,6 +13,10 @@
 
 <script src="https://unpkg.com/mithril/mithril.js"></script>
 
+<script src="https://cdn.jsdelivr.net/npm/jwt-decode/build/jwt-decode.min.js"></script>
+
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+
 </head>
 <body>
 
@@ -22,8 +26,18 @@ var DiceGame={
   turn : 0,
   d1 : 1,
   d2 : 1,
-  name : 'spock',
+  name : '',
   score : 0,
+  isLoggedIn : false,
+  credential : '',
+
+  setPlayerName: function(name, credential) {
+	this.name = name;
+	this.credential = credential;
+    this.isLoggedIn = true;
+	Score.loadMyScoreList(DiceGame.name);
+	m.redraw();
+  },
 
   play: function() {
  	if (this.turn < 10) {
@@ -41,32 +55,58 @@ var DiceGame={
    }
  } // DiceGame
 
+ function handleCredentialResponse(response) {
+        console.log("Callback called")
+        // decodeJwtResponse() is a custom function defined by you
+        // to decode the credential response.
+        const responsePayload = jwt_decode(response.credential);
+
+        console.log('Given Name: ' + responsePayload.given_name);
+
+		DiceGame.setPlayerName(responsePayload.given_name, response.credential);
+}
+
 var DiceView={
 	view: function() {
 		return m('div', [
 			m('div',{class:'subtitle'},"Just play here"),
-			m("input[type=text][placeholder=name]", {
-				value: DiceGame.name,
-				class: 'input is-rounded',
-				 oninput: function (e) {
-					 DiceGame.name=e.target.value
-					 Score.loadMyScoreList(DiceGame.name)
-					},
+
+			// Conditionally render login div if the user is not logged in
+            !DiceGame.isLoggedIn ? [
+				m('div',{class:'bold'},"Please log in:"),
+                m('div', {
+                    id: 'g_id_onload',
+                    'data-client_id': '107018993107-umshn8eim2hudhpdidaibsagfp3vikgb.apps.googleusercontent.com',
+                    'data-callback': 'handleCredentialResponse'
+                }),
+                m('div', {
+                    class: 'g_id_signin',
+                    'data-type': 'standard'
+                }),
+            ] : m('div', [
+                // Display the player's name once logged in
+				m("input[type=text][placeholder=name]", {
+					value: DiceGame.name,
+					class: 'input is-rounded',
+					readonly: true,
 				 }),
+            ]),
+			
 			m('div',{class:'level'},[
 			 m('label',{class:'level-item'},"turn:"+DiceGame.turn),
 			 m('label',{class:'level-item'},"score:"+DiceGame.score),
 			]),
 			m('label',{class:'label'},"Dice 1:"+DiceGame.d1),
 			m('label',{class:'label'},"Dice 2:"+DiceGame.d2),
-			m('button',{
-				class: 'button is-link',
-				onclick: function(e) {DiceGame.play()}
-			    },"play"),
+			m('button', {
+					class: 'button is-link',
+					onclick: function(e) {DiceGame.play()},
+					disabled: !DiceGame.isLoggedIn // Disable the button if isLoggedIn is false
+			    }, "play"),
 		])
 	}	
 }
- 
+
 var Score = {
 	    list: [],
 	    loadList: function() {
@@ -76,7 +116,7 @@ var Score = {
 	        })
 	        .then(function(result) {
 	            Score.list = result.items
-	        	console.log("got:",result.items)
+	        	console.log("got:", result.items)
 	        	// m.redraw(true) 
 	        })
 	    },
@@ -93,16 +133,16 @@ var Score = {
 	        	// m.redraw(true) 
 	        })
 	    },
-	    save: function(score,name) {
-	    	console.log("saving...",Score.current)
+	    save: function(score, name) {
+	    	console.log("saving...", score)
 	        return m.request({
 	            method: "GET",
-	            url: "_ah/api/myApi/v1/addScore/"+score+"/"+name
+	            url: "_ah/api/myApi/v1/addScoreSec/" + score + "/" + name + '?access_token=' + DiceGame.credential
 	        })
 	        .then(function(result) {
 	        	console.log("got:",result)
 	        	Score.loadList()
-				// Score.loadMyScoreList(DiceGame.name)
+				Score.loadMyScoreList(DiceGame.name)
 	        })
 	    }
 	}
@@ -129,7 +169,11 @@ var ScoreView = {
 }
 
 var MyScoreView = {
-  oninit: Score.loadMyScoreList(DiceGame.name),
+  oninit: function() {
+	if (DiceGame.isLoggedIn) {
+		Score.loadMyScoreList(DiceGame.name);
+	}
+  },
   view: function() {
    	return m('div', [
 	  m('div',{class:'subtitle'},"My Top 10 Scores"),
